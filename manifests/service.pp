@@ -8,11 +8,27 @@
 #
 # @author https://github.com/elastic/puppet-logstash/graphs/contributors
 #
-class logstash::service {
+class logstash::service(
+  String $service_name = 'logstash',
+){
   $default_settings = {
-    'path.data'   => '/var/lib/logstash',
-    'path.config' => '/etc/logstash/conf.d',
-    'path.logs'   => '/var/log/logstash',
+    'path.data'               => "/var/lib/${service_name}",
+    'path.config'             => "/etc/${service_name}/conf.d",
+    'path.logs'               => "/var/log/${service_name}",
+    'path.queue'              => "/var/lib/${service_name}/queue",
+    'path.dead_letter_queue'  => "/var/lib/${service_name}/dead_letter_queue",
+  }
+
+  #ensure the /var directories above are created
+  $default_settings.each | String $setting, String $dirpath | {
+    if $dirpath =~ /^\/var\// {
+      file { $dirpath:
+        ensure => directory,
+        owner  => 'logstash',
+        group  => 'root',
+        mode   => '0644',
+      }
+    }
   }
 
   $default_startup_options = {
@@ -21,14 +37,14 @@ class logstash::service {
     'LS_SETTINGS_DIR'     => $logstash::config_dir,
     'LS_OPTS'             => "--path.settings=${logstash::config_dir}",
     'LS_JAVA_OPTS'        => '""',
-    'LS_PIDFILE'          => '/var/run/logstash.pid',
+    'LS_PIDFILE'          => "/var/run/${service_name}.pid",
     'LS_USER'             => $logstash::logstash_user,
     'LS_GROUP'            => $logstash::logstash_group,
     'LS_GC_LOG_FILE'      => '/var/log/logstash/gc.log',
     'LS_OPEN_FILES'       => '16384',
     'LS_NICE'             => '19',
-    'SERVICE_NAME'        => '"logstash"',
-    'SERVICE_DESCRIPTION' => '"logstash"',
+    'SERVICE_NAME'        => "\"${service_name}\"",
+    'SERVICE_DESCRIPTION' => "\"${service_name}\"",
   }
 
   $default_jvm_options = [
@@ -81,12 +97,12 @@ class logstash::service {
 
   if $service_ensure == 'running' {
     # Then make sure the Logstash startup options are up to date.
-    file {'/etc/logstash/startup.options':
+    file {"${logstash::config_dir}/startup.options":
       content => template('logstash/startup.options.erb'),
     }
 
     # ..and make sure the JVM options are up to date.
-    file {'/etc/logstash/jvm.options':
+    file {"${logstash::config_dir}/jvm.options":
       content => template('logstash/jvm.options.erb'),
     }
 
@@ -94,18 +110,18 @@ class logstash::service {
     # the file, which will default Logstash to traditional single-pipeline
     # behaviour.
     if(empty($pipelines)) {
-      file {'/etc/logstash/pipelines.yml':
+      file {"${logstash::config_dir}/pipelines.yml":
         content => '',
       }
     }
     else {
-      file {'/etc/logstash/pipelines.yml':
+      file {"${logstash::config_dir}/pipelines.yml":
         content => template('logstash/pipelines.yml.erb'),
       }
     }
 
     # ..and the Logstash internal settings too.
-    file {'/etc/logstash/logstash.yml':
+    file {"${logstash::config_dir}/logstash.yml":
       content => template('logstash/logstash.yml.erb'),
     }
 
@@ -167,6 +183,7 @@ class logstash::service {
   service { 'logstash':
     ensure     => $service_ensure,
     enable     => $service_enable,
+    name       => $service_name,
     hasstatus  => true,
     hasrestart => true,
     provider   => $service_provider,
